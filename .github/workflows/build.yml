@@ -1,90 +1,34 @@
-name: Custom Build with USB Logging
+name: Build K30 Keyboard - Full Firmware
 
-on:
-  # 当以下文件有变更时自动触发
-  push:
-    paths:
-      - ".github/workflows/custom-build-with-logging.yml"
-      - "app/boards/shields/k30/**"
-      - "app/snippets/zmk-usb-logging/**"
-  # 当有Pull Request时触发
-  pull_request:
-    paths:
-      - ".github/workflows/custom-build-with-logging.yml"
-      - "app/boards/shields/k30/**"
-  # 手动触发配置，添加一个输入选项
-  workflow_dispatch:
-    inputs:
-      log_message:
-        description: "构建日志说明"
-        required: false
-        default: "手动构建启用USB日志的K30固件"
+on: [push, pull_request, workflow_dispatch]
 
 jobs:
-  build-with-logging:
+  build:
     runs-on: ubuntu-latest
     container:
-      image: docker.io/zmkfirmware/zmk-build-arm:3.5
+      image: zmkfirmware/zmk-build-arm:stable
+      options: --user root
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          persist-credentials: false
-      - name: Cache west modules
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-zephyr-modules
-        with:
-          path: |
-            modules/
-            tools/
-            zephyr/
-            bootloader/
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('app/west.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-
-            ${{ runner.os }}-build-
-            ${{ runner.os }}-
-      - name: Initialize workspace (west init)
-        run: west init -l app
-      - name: Update modules (west update)
-        run: west update --fetch-opt=--filter=tree:0
-      - name: Export Zephyr CMake package (west zephyr-export)
-        run: west zephyr-export
-      - name: Debug Information
+          submodules: recursive
+
+      - name: Initialize ZMK
         run: |
-          echo "当前工作目录: $(pwd)"
-          echo "列出app目录内容:"
-          ls -la app/
-          echo "列出snippets目录内容:"
-          ls -la app/snippets/
-          echo "列出zmk-usb-logging目录内容:"
-          ls -la app/snippets/zmk-usb-logging/
-          echo "列出k30屏蔽板目录内容:"
-          ls -la app/boards/shields/k30/
-      - name: Build with USB Logging
+          west init -l config
+          west update
+          west zephyr-export
+
+      - name: Build firmware
         run: |
-          echo "开始构建启用USB日志的K30固件..."
-          echo "构建命令: west build -s app -p -b nrfmicro_13 -S zmk-usb-logging -- -DSHIELD=k30"
-          west build -s app -p -b nrfmicro_13 -S zmk-usb-logging -- -DSHIELD=k30 || {
-            echo "构建失败! 输出错误日志..."
-            exit 1
-          }
-      - name: Verify Build Output
-        run: |
-          echo "验证构建输出文件..."
-          ls -la build/zephyr/
-          if [ -f "build/zephyr/zmk.hex" ] || [ -f "build/zephyr/zmk.uf2" ]; then
-            echo "构建成功，固件文件已生成!"
-          else
-            echo "错误: 未找到固件文件!"
-            exit 1
-          fi
-      - name: Upload artifacts
+          west build -b nrfmicro_13 -s zmk/app -- \
+            -DZMK_CONFIG="$GITHUB_WORKSPACE/config" \
+            -DSHIELD=k30
+
+      - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: k30-with-usb-logging-${{ github.sha }}
-          path: |
-            build/zephyr/zmk.hex
-            build/zephyr/zmk.uf2
-          if-no-files-found: warn
+          name: k30-full-firmware
+          path: build/zephyr/zmk.uf2
